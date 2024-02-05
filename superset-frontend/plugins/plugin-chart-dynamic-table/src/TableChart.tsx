@@ -25,7 +25,8 @@ import React, {
   MouseEvent,
   ChangeEvent,
   useRef,
-  forwardRef
+  forwardRef,
+  useEffect
 } from 'react';
 import {
   ColumnInstance,
@@ -51,6 +52,11 @@ import {
   css,
   t,
   tn,
+  getColumnLabel,
+  SupersetClientClass,
+  BuildQuery,
+  QueryContext,
+  QueryFormMetric,
 } from '@superset-ui/core';
 
 import { DataColumnMeta, TableChartTransformedProps } from './types';
@@ -70,8 +76,38 @@ import getScrollBarSize from './DataTable/utils/getScrollBarSize';
 // Additional Code
 import Select from 'react-select';
 import makeAnimated from 'react-select/animated';
+import { max } from 'lodash';
+import { buildQuery, cachedBuildQuery } from './buildQuery';
 
+// ADDITIONAL CODE
+interface ColumnSelectProps {
+  label: string;
+  options: string[];
+  selected: string[];
+  onChange: (selected: string[]) => void;
+  allowMultiple?: boolean;
+}
 
+const ColumnSelect = forwardRef<HTMLDivElement, ColumnSelectProps>(
+  ({ label, options, selected, onChange, allowMultiple = true}, ref) => {
+    const animatedComponents = makeAnimated();
+    return (
+      <div ref={ref} style={{ marginBottom: '10px' }}>
+        <label style={{ display: 'block', marginBottom: '5px' }}>{label}</label>
+        <Select
+          isMulti={allowMultiple}
+          options={options.map(option => ({ value: option, label: option }))}
+          value={allowMultiple ? selected.map((value) => ({ value, label: value })) : { value: selected[0], label: selected[0] }}
+          onChange={(selectedOptions) => {
+            const selectedValues = selectedOptions ? (allowMultiple ? selectedOptions.map((option) => option.value) : [selectedOptions.value]) : []
+            onChange(selectedValues);
+          }}
+          components={animatedComponents}
+        />
+      </div>
+    );
+  }
+);
 
 
 // VANILLA CODE
@@ -180,11 +216,7 @@ function SearchInput({ count, value, onChange }: SearchInputProps) {
   );
 }
 
-function SelectPageSize({
-  options,
-  current,
-  onChange,
-}: SelectPageSizeRendererProps) {
+function SelectPageSize({options, current, onChange,}: SelectPageSizeRendererProps) {
   return (
     <span className="dt-select-page-size form-inline">
       {t('page_size.show')}{' '}
@@ -213,7 +245,7 @@ function SelectPageSize({
 }
 
 const getNoResultsMessage = (filter: string) =>
-  filter ? t('No matching records found') : t('No records found');
+  filter ? t('No matching records found') : t('No records found')
 
 export default function TableChart<D extends DataRecord = DataRecord>(
   props: TableChartTransformedProps<D> & {
@@ -224,6 +256,10 @@ export default function TableChart<D extends DataRecord = DataRecord>(
     timeGrain,
     height,
     width,
+    visibleMetricsColumns,
+    defaultGroupbyColumns,
+    defaultMetricsColumns,
+    all_columns,
     data,
     totals,
     isRawRecords,
@@ -253,6 +289,8 @@ export default function TableChart<D extends DataRecord = DataRecord>(
     width: 0,
     height: 0,
   });
+
+
   // keep track of whether column order changed, so that column widths can too
   const [columnOrderToggle, setColumnOrderToggle] = useState(false);
 
@@ -437,14 +475,8 @@ export default function TableChart<D extends DataRecord = DataRecord>(
       // inline style for both th and td cell
       const sharedStyle: CSSProperties = getSharedStyle(column);
 
-      const alignPositiveNegative =
-        config.alignPositiveNegative === undefined
-          ? defaultAlignPN
-          : config.alignPositiveNegative;
-      const colorPositiveNegative =
-        config.colorPositiveNegative === undefined
-          ? defaultColorPN
-          : config.colorPositiveNegative;
+      const alignPositiveNegative = config.alignPositiveNegative === undefined ? defaultAlignPN : config.alignPositiveNegative;
+      const colorPositiveNegative = config.colorPositiveNegative === undefined ? defaultColorPN : config.colorPositiveNegative;
 
       const { truncateLongCells } = config;
 
@@ -454,12 +486,7 @@ export default function TableChart<D extends DataRecord = DataRecord>(
         columnColorFormatters.length > 0;
 
       const valueRange =
-        !hasColumnColorFormatters &&
-        (config.showCellBars === undefined
-          ? showCellBars
-          : config.showCellBars) &&
-        (isMetric || isRawRecords || isPercentMetric) &&
-        getValueRange(key, alignPositiveNegative);
+        !hasColumnColorFormatters && (config.showCellBars === undefined ? showCellBars : config.showCellBars) && (isMetric || isRawRecords || isPercentMetric) && getValueRange(key, alignPositiveNegative);
 
       let className = '';
       if (emitCrossFilters && !isMetric) {
@@ -664,11 +691,6 @@ export default function TableChart<D extends DataRecord = DataRecord>(
     ],
   );
 
-  const columns = useMemo(
-    () => columnsMeta.map(getColumnConfigs),
-    [columnsMeta, getColumnConfigs],
-  );
-
   const handleServerPaginationChange = useCallback(
     (pageNumber: number, pageSize: number) => {
       updateExternalFormData(setDataMask, pageNumber, pageSize);
@@ -686,10 +708,9 @@ export default function TableChart<D extends DataRecord = DataRecord>(
   // TESTING SECTION
   //
   //
-
-  const selectColumnsRef = useRef<HTMLDivElement>(null);
   const groupByColumnsRef = useRef<HTMLDivElement>(null);
   const metricColumnsRef = useRef<HTMLDivElement>(null);
+  const aggregateColumnsRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
     // After initial load the table should resize only when the new sizes
@@ -697,22 +718,20 @@ export default function TableChart<D extends DataRecord = DataRecord>(
     const scrollBarSize = getScrollBarSize();
     const { width: tableWidth, height: tableHeight } = tableSize;
 
+    // Resize while keeping track of Dropdowns
     const columnSelectRefs: React.RefObject<HTMLDivElement>[] = [
-      selectColumnsRef,
       groupByColumnsRef,
       metricColumnsRef,
+      aggregateColumnsRef
     ];
 
-    console.log(columnSelectRefs);
-
+    // Recalculate Dropdowns
     const dropDownHeight = columnSelectRefs.reduce((height, ref) => {
       const offsetHeight = ref.current?.offsetHeight || 0;
       const marginTop = parseInt(window.getComputedStyle(ref.current as HTMLDivElement).marginTop, 10) || 0;
       const marginBottom = parseInt(window.getComputedStyle(ref.current as HTMLDivElement).marginBottom, 10) || 0;
       return height + offsetHeight + marginTop + marginBottom;
     }, 0);
-
-    console.log("DropDownheight: " + dropDownHeight);
 
     // Table is increasing its original size
     if (width - tableWidth > scrollBarSize || height - tableHeight > scrollBarSize + dropDownHeight) {
@@ -728,79 +747,209 @@ export default function TableChart<D extends DataRecord = DataRecord>(
         height: height + dropDownHeight,
       });
     }
-
   }, [width, height, handleSizeChange, tableSize]);
 
-  // TODO: Need to adjust the table to accomodate for the Dropdown Selections
-  // const { width: widthFromState, height: heightFromState } = {width: 1200, height: 300};
-  const { width: widthFromState, height: heightFromState } = tableSize;
-
   // CREATING ADDITIONAL CONTROLS
-  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
-  const [groupByColumns, setGroupByColumns] = useState<string[]>([]);
-  const [selectedMetrics, setSelectedMetrics] = useState<string[]>([]);
+  const [groupByColumns, setGroupByColumns] = useState<string[]>(defaultGroupbyColumns as string[] || []);
+  const [selectedMetrics, setSelectedMetrics] = useState<string[]>(defaultMetricsColumns as string[] || []);
+  const [aggregateSelected, setAggregateSelected] = useState<string[]>(['Sum']);
 
-  const defaultAvailableSelectColumns = ['Select1', 'Select2', 'Select3'];
-  const defaultAvailableGroupByColumns = ['GroupBy1', 'GroupBy2', 'GroupBy3'];
-  const defaultAvailableMetricsColumns = ['Metrics1', 'Metrics2', 'Metrics3'];
+  const defaultAvailableAggregateColumns = ['Sum', 'Average', 'Count', 'Count Distinct', 'Min', 'Max'];
 
-  interface ColumnSelectProps {
-    label: string;
-    options: string[];
-    selected: string[];
-    onChange: (selected: string[]) => void;
+  // TESTING DYNAMIC
+  const [filteredData, setFilteredData] = useState<DataRecord[]>(props.data);
+  const [filteredColumns, setFilteredColumns] = useState<ColumnWithLooseAccessor<D>[]>([]);
+
+  // queryContext
+  async function fetchData(queryContext: QueryContext) {
+    const loginURL = "http://localhost:9000/api/v1/security/login"  
+    // GET URL
+    const loginBody = await fetch(loginURL, {
+      method: "POST",
+      body: JSON.stringify({
+        "username": "admin",  
+        "provider": "db",
+        "refresh": "true",
+        "password": "admin"
+      }),
+      headers: {
+        "Content-Type": "application/json; charset=UTF-8",
+        "Accept": "application/json"
+      }
+    })
+      .then(
+        (response) => {
+          if (!response.ok){
+            throw new Error(`HTTP ERROR! Status: ${response.status}`);
+          }
+          return response.json();
+        }
+      )
+
+    const access_token = loginBody["access_token"];
+
+    console.log(access_token);
+    // Fetch Data
+
+    console.log("Query Context: " + JSON.stringify(queryContext, null, 2));
+
+    const data_endpoint = "http://localhost:9000/api/v1/chart/data";
+
+    const newDataRecords = await fetch(
+      data_endpoint,
+      {
+        method: "POST",
+        body: JSON.stringify(queryContext),
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": 'Bearer ' + access_token
+        }
+      }
+    )
+    .then(
+      (response) => {
+        if (!response.ok){
+          throw new Error(`HTTP ERROR! Status: ${response.status}`);
+        }
+        return response.json();
+      }
+    )
+
+    console.log("raw Data:" + JSON.stringify(newDataRecords, null, 2));
+    
+    return newDataRecords["result"];
   }
+  
+  useMemo(async () => {
+    // const aggregates = calculateAggregates(props.data, groupByColumns, selectedMetrics);
 
-  const ColumnSelect = forwardRef<HTMLDivElement, ColumnSelectProps>(
-    ({ label, options, selected, onChange }, ref) => {
-      const animatedComponents = makeAnimated();
-      return (
-        <div ref={ref} style={{ marginBottom: '10px' }}>
-          <label style={{ display: 'block', marginBottom: '5px' }}>{label}</label>
-          <Select
-            isMulti
-            options={options.map(option => ({ value: option, label: option }))}
-            value={selected.map(value => ({ value, label: value }))}
-            onChange={(selectedOptions) => {
-              const selectedValues = selectedOptions ? selectedOptions.map(option => option.value) : [];
-              onChange(selectedValues);
-            }}
-            components={animatedComponents}
-          />
-        </div>
-      );
+    // const newData: DataRecord[] = aggregates.map(row => row as DataRecord);
+    const queryContext = cachedBuildQuery()(props.formData, );
+    queryContext.queries[0].columns = groupByColumns;
+
+    const GetAggregateLabel = () => {
+      let label = "";
+      switch (aggregateSelected[0]){
+        case "Sum":
+          label = "SUM";
+          break;
+        case "Average":
+          label = "AVG";
+          break;
+        case "Count":
+          label = "COUNT";
+          break;
+        case "Count Distinct":
+          label = "COUNT_DISTINCT";
+          break;
+        case "Min":
+          label = "MIN";
+          break;
+        case "Max":
+          label = "MAX";
+          break;
+      }
+      return label;
     }
-  );
 
+    queryContext.queries[0].metrics = selectedMetrics.map(
+      (metricColumn) : QueryFormMetric => {
+        return {
+          "expressionType": "SIMPLE",
+          "column": {
+            "advanced_data_type": null,
+            "certification_details": null,
+            "certified_by": null,
+            "column_name": metricColumn,
+            "description": null,
+            "expression": "",
+            "filterable": true,
+            "groupby": true,
+            "id": 363,
+            "is_certified": false,
+            "is_dttm": false,
+            "python_date_format": null,
+            "type": "BIGINT",
+            "type_generic": 0,
+            "verbose_name": null,
+            "warning_markdown": null
+          },
+          "aggregate": GetAggregateLabel(),
+          "sqlExpression": null,
+          "datasourceWarning": false,
+          "hasCustomLabel": false,
+          "label": `${GetAggregateLabel()}(${metricColumn})`,
+          "optionName": "metric_nzr0xyjj5kf_wtbrv6t9mu"
+        }
+      }
+    )
+
+    const fetchedDataRecords = await fetchData(queryContext);
+
+    const newDataRecords = Object.values(fetchedDataRecords[0]["data"]).map(row => row as DataRecord);
+
+    console.log("New Data Records: " + JSON.stringify(newDataRecords, null, 2));
+    // TODO: Change Column Metas
+    // TODO: Change Row COUNT
+    setFilteredData(newDataRecords);
+
+    let aggregatesMeta: DataColumnMeta[] = [];
+
+    fetchedDataRecords[0]["colnames"].forEach((column: string, index: number) => {
+      console.log(`Index: ${index}, Value: ${column}`);
+      const columnMeta: DataColumnMeta = {
+        key: column,
+        label: column,
+        dataType: fetchedDataRecords[0]["coltypes"][index],
+        isMetric: !groupByColumns.includes(column),
+        isPercentMetric: false,
+        isNumeric: true,
+        config: {
+          // Populate TableColumnConfig properties as needed
+        }
+      };
+
+      aggregatesMeta.push(columnMeta);
+    });
+
+    const aggregatedColumns = aggregatesMeta.map(getColumnConfigs);
+
+    // update new table columns
+    setFilteredColumns(aggregatedColumns);
+  }, [groupByColumns, selectedMetrics, aggregateSelected])
+
+  const { width: widthFromState, height: heightFromState } = tableSize;
 
   return (
     <Styles>
       {/* Control UI components */}
       <ColumnSelect
-        label="Select Columns"
-        options={defaultAvailableSelectColumns}
-        selected={selectedColumns}
-        onChange={(selected) => setSelectedColumns(selected)}
-        ref={selectColumnsRef}
-      />
-      <ColumnSelect
         label="Groupby Columns"
-        options={defaultAvailableGroupByColumns}
+        options={all_columns as string[]}
         selected={groupByColumns}
-        onChange={(selected) => setSelectedColumns(selected)}
+        onChange={(selected) => setGroupByColumns(selected)}
         ref={groupByColumnsRef}
       />
       <ColumnSelect
         label="Metric Columns"
-        options={defaultAvailableMetricsColumns}
+        options={visibleMetricsColumns as string[]}
         selected={selectedMetrics}
-        onChange={(selected) => setSelectedColumns(selected)}
+        onChange={(selected) => setSelectedMetrics(selected)}
         ref={metricColumnsRef}
+      />
+      <ColumnSelect
+        label="Aggregate Function"
+        options={defaultAvailableAggregateColumns}
+        selected={aggregateSelected}
+        onChange={setAggregateSelected}
+        allowMultiple={false}
+        ref={aggregateColumnsRef}
       />
       {/* DataTable component */}
       <DataTable<D>
-        columns={columns}
-        data={data}
+        columns={filteredColumns}
+        data={filteredData}
         rowCount={rowCount}
         tableClassName="table table-striped table-condensed"
         pageSize={pageSize}

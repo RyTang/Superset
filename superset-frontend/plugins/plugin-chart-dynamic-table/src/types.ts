@@ -33,6 +33,7 @@ import {
   ContextMenuFilters,
   CurrencyFormatter,
   Currency,
+  QueryFormColumn,
 } from '@superset-ui/core';
 import { ColorFormatters } from '@superset-ui/chart-controls';
 
@@ -83,8 +84,11 @@ export type TableChartFormData = QueryFormData & {
   metrics?: QueryFormMetric[] | null;
   percent_metrics?: QueryFormMetric[] | null;
   timeseries_limit_metric?: QueryFormMetric[] | QueryFormMetric | null;
+  visible_metrics_columns: QueryFormMetric[] | [];
+  default_groupby_columns: QueryFormColumn[] | [];
+  default_metrics_columns: QueryFormMetric[] | [];
   groupby?: QueryFormMetric[] | null;
-  all_columns?: QueryFormMetric[] | null;
+  all_columns: QueryFormMetric[] | null;
   order_desc?: boolean;
   show_cell_bars?: boolean;
   table_timestamp_format?: string;
@@ -106,6 +110,12 @@ export interface TableChartTransformedProps<D extends DataRecord = DataRecord> {
   timeGrain?: TimeGranularity;
   height: number;
   width: number;
+  visibleMetricsColumns: QueryFormMetric[] | [];
+  defaultGroupbyColumns: QueryFormColumn[] | [];
+  defaultMetricsColumns: QueryFormMetric[] | [];
+  queriesData: ChartDataResponseResult[];
+  formData: TableChartFormData;
+  all_columns: QueryFormMetric[] | null;
   rowCount?: number;
   serverPagination: boolean;
   serverPaginationData: { pageSize?: number; currentPage?: number };

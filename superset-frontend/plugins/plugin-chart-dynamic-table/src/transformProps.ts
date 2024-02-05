@@ -214,6 +214,7 @@ const transformProps = (
   const {
     height,
     width,
+    
     rawFormData: formData,
     queriesData = [],
     filterState,
@@ -229,6 +230,10 @@ const transformProps = (
   const {
     align_pn: alignPositiveNegative = true,
     color_pn: colorPositiveNegative = true,
+    visible_metrics_columns: visibleMetricsColumns,
+    default_groupby_columns: defaultGroupbyColumns,
+    default_metrics_columns: defaultMetricsColumns,
+    all_columns,
     show_cell_bars: showCellBars = true,
     include_search: includeSearch = false,
     page_length: pageLength,
@@ -240,6 +245,7 @@ const transformProps = (
     conditional_formatting: conditionalFormatting,
     allow_rearrange_columns: allowRearrangeColumns,
   } = formData;
+
   const timeGrain = extractTimegrain(formData);
 
   const [metrics, percentMetrics, columns] = processColumns(chartProps);
@@ -267,6 +273,12 @@ const transformProps = (
     height,
     width,
     isRawRecords: queryMode === QueryMode.raw,
+    visibleMetricsColumns,
+    defaultGroupbyColumns,
+    defaultMetricsColumns,
+    all_columns,
+    queriesData,
+    formData,
     data,
     totals,
     columns,

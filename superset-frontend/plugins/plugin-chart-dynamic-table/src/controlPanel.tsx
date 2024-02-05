@@ -53,7 +53,8 @@ import {
 import { PAGE_SIZE_OPTIONS } from './consts';
 
 function getQueryMode(controls: ControlStateMapping): QueryMode {
-  const mode = controls?.query_mode?.value;
+  // const mode = controls?.query_mode?.value;
+  const mode = QueryMode.raw;
   if (mode === QueryMode.aggregate || mode === QueryMode.raw) {
     return mode as QueryMode;
   }
@@ -72,35 +73,13 @@ function isQueryMode(mode: QueryMode) {
     getQueryMode(controls) === mode;
 }
 
-const isAggMode = isQueryMode(QueryMode.aggregate);
 const isRawMode = isQueryMode(QueryMode.raw);
 
-const validateAggControlValues = (
-  controls: ControlStateMapping,
-  values: any[],
-) => {
-  const areControlsEmpty = values.every(val => ensureIsArray(val).length === 0);
-  return areControlsEmpty && isAggMode({ controls })
-    ? [t('Group By, Metrics or Percentage Metrics must have a value')]
-    : [];
-};
-
-const queryMode: ControlConfig<'RadioButtonControl'> = {
-  type: 'RadioButtonControl',
-  label: t('Query mode'),
-  default: null,
-  options: [
-    [QueryMode.aggregate, QueryModeLabel[QueryMode.aggregate]],
-    [QueryMode.raw, QueryModeLabel[QueryMode.raw]],
-  ],
-  mapStateToProps: ({ controls }) => ({ value: getQueryMode(controls) }),
-  rerender: ['all_columns', 'groupby', 'metrics', 'percent_metrics'],
-};
-
+// TODO: Need to deattach all_columns from Control Panel and attach to Visible Group By Columns
 const allColumnsControl: typeof sharedControls.groupby = {
   ...sharedControls.groupby,
-  label: t('Columns'),
-  description: t('Columns to display'),
+  label: t('Visible Group by Columns'),
+  description: t('Columns to Group By,\nNOTE: All Metric Columnsneeds to be present here'),
   multi: true,
   freeForm: true,
   allowAll: true,
@@ -108,41 +87,16 @@ const allColumnsControl: typeof sharedControls.groupby = {
   optionRenderer: c => <ColumnOption showType column={c} />,
   valueRenderer: c => <ColumnOption column={c} />,
   valueKey: 'column_name',
-  mapStateToProps: ({ datasource, controls }, controlState) => ({
-    options: datasource?.columns || [],
-    queryMode: getQueryMode(controls),
-    externalValidationErrors:
-      isRawMode({ controls }) && ensureIsArray(controlState?.value).length === 0
-        ? [t('must have a value')]
-        : [],
-  }),
+  // mapStateToProps: ({ datasource, controls }, controlState) => ({
+  //   options: datasource?.columns || [],
+  //   queryMode: getQueryMode(controls),
+  //   externalValidationErrors:
+  //     isRawMode({ controls }) && ensureIsArray(controlState?.value).length === 0
+  //       ? [t('must have a value')]
+  //       : [],
+  // }),
   visibility: isRawMode,
   resetOnHide: false,
-};
-
-const percentMetricsControl: typeof sharedControls.metrics = {
-  ...sharedControls.metrics,
-  label: t('Percentage metrics'),
-  description: t(
-    'Metrics for which percentage of total are to be displayed. Calculated from only data within the row limit.',
-  ),
-  visibility: isAggMode,
-  resetOnHide: false,
-  mapStateToProps: ({ datasource, controls }, controlState) => ({
-    columns: datasource?.columns || [],
-    savedMetrics: defineSavedMetrics(datasource),
-    datasource,
-    datasourceType: datasource?.type,
-    queryMode: getQueryMode(controls),
-    externalValidationErrors: validateAggControlValues(controls, [
-      controls.groupby?.value,
-      controls.metrics?.value,
-      controlState?.value,
-    ]),
-  }),
-  rerender: ['groupby', 'metrics'],
-  default: [],
-  validators: [],
 };
 
 const config: ControlPanelConfig = {
@@ -154,122 +108,42 @@ const config: ControlPanelConfig = {
       controlSetRows: [
         [
           {
-            name: 'query_mode',
-            config: queryMode,
-          },
-        ],
-        [
-          {
-            name: 'groupby',
-            override: {
-              visibility: isAggMode,
-              resetOnHide: false,
-              mapStateToProps: (
-                state: ControlPanelState,
-                controlState: ControlState,
-              ) => {
-                const { controls } = state;
-                const originalMapStateToProps =
-                  sharedControls?.groupby?.mapStateToProps;
-                const newState =
-                  originalMapStateToProps?.(state, controlState) ?? {};
-                newState.externalValidationErrors = validateAggControlValues(
-                  controls,
-                  [
-                    controls.metrics?.value,
-                    controls.percent_metrics?.value,
-                    controlState.value,
-                  ],
-                );
-
-                return newState;
-              },
-              rerender: ['metrics', 'percent_metrics'],
-            },
-          },
-        ],
-        [
-          hasGenericChartAxes && isAggMode
-            ? {
-                name: 'time_grain_sqla',
-                config: {
-                  ...sharedControls.time_grain_sqla,
-                  visibility: ({ controls }) => {
-                    const dttmLookup = Object.fromEntries(
-                      ensureIsArray(controls?.groupby?.options).map(option => [
-                        option.column_name,
-                        option.is_dttm,
-                      ]),
-                    );
-
-                    return ensureIsArray(controls?.groupby.value)
-                      .map(selection => {
-                        if (isAdhocColumn(selection)) {
-                          return true;
-                        }
-                        if (isPhysicalColumn(selection)) {
-                          return !!dttmLookup[selection];
-                        }
-                        return false;
-                      })
-                      .some(Boolean);
-                  },
-                },
-              }
-            : null,
-          hasGenericChartAxes && isAggMode ? 'temporal_columns_lookup' : null,
-        ],
-        [
-          {
-            name: 'metrics',
-            override: {
-              validators: [],
-              visibility: isAggMode,
-              resetOnHide: false,
-              mapStateToProps: (
-                { controls, datasource, form_data }: ControlPanelState,
-                controlState: ControlState,
-              ) => ({
-                columns: datasource?.columns[0]?.hasOwnProperty('filterable')
-                  ? (datasource as Dataset)?.columns?.filter(
-                      (c: ColumnMeta) => c.filterable,
-                    )
-                  : datasource?.columns,
-                savedMetrics: defineSavedMetrics(datasource),
-                // current active adhoc metrics
-                selectedMetrics:
-                  form_data.metrics ||
-                  (form_data.metric ? [form_data.metric] : []),
-                datasource,
-                externalValidationErrors: validateAggControlValues(controls, [
-                  controls.groupby?.value,
-                  controls.percent_metrics?.value,
-                  controlState.value,
-                ]),
-              }),
-              rerender: ['groupby', 'percent_metrics'],
-            },
-          },
-          {
             name: 'all_columns',
             config: allColumnsControl,
           },
         ],
         [
           {
-            name: 'percent_metrics',
-            config: percentMetricsControl,
+            name: 'visible_metrics_columns',
+            config: {
+              ...sharedControls.columns,
+              label: t('Visible Metrics Columns'),
+              description: t('Visible Columns on the Metrics DropDown'),
+            },
+          },
+        ],
+        [
+          {
+            name: 'default_groupby_columns',
+            config: {
+              ...sharedControls.groupby,
+              label: t('Default Group By Columns'),
+              description: t('Default Columns on the Groupby DropDown'),
+            },
+          },
+        ],
+        [
+          {
+            name: 'default_metrics_columns',
+            config: {
+              ...sharedControls.columns,
+              label: t('Default Metrics Columns'),
+              description: t('Default Columns on the Metrics DropDown'),
+            },
           },
         ],
         ['adhoc_filters'],
         [
-          {
-            name: 'timeseries_limit_metric',
-            override: {
-              visibility: isAggMode,
-              resetOnHide: false,
-            },
-          },
           {
             name: 'order_by_cols',
             config: {
@@ -306,14 +180,6 @@ const config: ControlPanelConfig = {
           : [],
         [
           {
-            name: 'row_limit',
-            override: {
-              default: 1000,
-              visibility: ({ controls }: ControlPanelsContainerProps) =>
-                !controls?.server_pagination?.value,
-            },
-          },
-          {
             name: 'server_page_length',
             config: {
               type: 'SelectControl',
@@ -324,51 +190,6 @@ const config: ControlPanelConfig = {
               description: t('Rows per page, 0 means no pagination'),
               visibility: ({ controls }: ControlPanelsContainerProps) =>
                 Boolean(controls?.server_pagination?.value),
-            },
-          },
-        ],
-        !hasGenericChartAxes
-          ? [
-              {
-                name: 'include_time',
-                config: {
-                  type: 'CheckboxControl',
-                  label: t('Include time'),
-                  description: t(
-                    'Whether to include the time granularity as defined in the time section',
-                  ),
-                  default: false,
-                  visibility: isAggMode,
-                  resetOnHide: false,
-                },
-              },
-            ]
-          : [null],
-        [
-          {
-            name: 'order_desc',
-            config: {
-              type: 'CheckboxControl',
-              label: t('Sort descending'),
-              default: true,
-              description: t('Whether to sort descending or ascending'),
-              visibility: isAggMode,
-              resetOnHide: false,
-            },
-          },
-        ],
-        [
-          {
-            name: 'show_totals',
-            config: {
-              type: 'CheckboxControl',
-              label: t('Show totals'),
-              default: false,
-              description: t(
-                'Show total aggregations of selected metrics. Note that row limit does not apply to the result.',
-              ),
-              visibility: isAggMode,
-              resetOnHide: false,
             },
           },
         ],

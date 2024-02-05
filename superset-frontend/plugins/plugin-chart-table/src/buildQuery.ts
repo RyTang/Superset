@@ -74,6 +74,8 @@ const buildQuery: BuildQuery<TableChartFormData> = (
     let { metrics, orderby = [], columns = [] } = baseQueryObject;
     let postProcessing: PostProcessingRule[] = [];
 
+    console.log("Base Metric:" + JSON.stringify(metrics, null, 2));
+
     if (queryMode === QueryMode.aggregate) {
       metrics = metrics || [];
       // override orderby with timeseries metric when in aggregation mode
@@ -85,7 +87,7 @@ const buildQuery: BuildQuery<TableChartFormData> = (
         orderby = [[metrics[0], false]];
       }
       // add postprocessing for percent metrics only when in aggregation mode
-      if (percentMetrics && percentMetrics.length > 0) {
+    if (percentMetrics && percentMetrics.length > 0) {
         const percentMetricLabels = removeDuplicates(
           percentMetrics.map(getMetricLabel),
         );
@@ -141,6 +143,9 @@ const buildQuery: BuildQuery<TableChartFormData> = (
       ...moreProps,
     };
 
+    console.log("Table Query Object: " + JSON.stringify(queryObject, null, 2));
+
+
     if (
       formData.server_pagination &&
       options?.extras?.cachedChanges?.[formData.slice_id] &&
@@ -175,6 +180,7 @@ const buildQuery: BuildQuery<TableChartFormData> = (
         orderby: undefined, // because this query will be used for get total aggregation.
       });
     }
+    console.log("Extra Queries: " + JSON.stringify(extraQueries, null, 2));
 
     const interactiveGroupBy = formData.extra_form_data?.interactive_groupby;
     if (interactiveGroupBy && queryObject.columns) {
