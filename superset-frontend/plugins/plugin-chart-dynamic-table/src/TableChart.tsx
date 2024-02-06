@@ -52,11 +52,9 @@ import {
   css,
   t,
   tn,
-  getColumnLabel,
-  SupersetClientClass,
-  BuildQuery,
   QueryContext,
   QueryFormMetric,
+  SupersetClient
 } from '@superset-ui/core';
 
 import { DataColumnMeta, TableChartTransformedProps } from './types';
@@ -76,10 +74,11 @@ import getScrollBarSize from './DataTable/utils/getScrollBarSize';
 // Additional Code
 import Select from 'react-select';
 import makeAnimated from 'react-select/animated';
-import { max } from 'lodash';
-import { buildQuery, cachedBuildQuery } from './buildQuery';
+import { cachedBuildQuery } from './buildQuery';
+import Button from '../../../src/components/Button/index';
 
 // ADDITIONAL CODE
+// Dropdown code
 interface ColumnSelectProps {
   label: string;
   options: string[];
@@ -109,6 +108,38 @@ const ColumnSelect = forwardRef<HTMLDivElement, ColumnSelectProps>(
   }
 );
 
+interface RefreshButtonProps {
+  onClick: () => void;
+  disabled: boolean;
+  label: string;
+}
+
+const RefreshButton: React.FC<RefreshButtonProps> = ({onClick, disabled, label}) => {
+  const button = Button({
+    tooltip:"Load Dataset",
+    disabled:disabled,
+    buttonSize:'default',
+    onClick:onClick,
+    buttonStyle:"primary",
+    children:label,
+    style: {marginBottom: '10px'}
+  })
+  
+  return button;
+};
+
+
+// Create Superset Cient for api calls
+const host = window.location.host;
+const protocol = "http:"
+
+const client = SupersetClient.configure({
+  credentials: 'include',
+  host: host,
+  protocol: protocol,
+});
+
+client.init()
 
 // VANILLA CODE
 
@@ -719,10 +750,10 @@ export default function TableChart<D extends DataRecord = DataRecord>(
     const { width: tableWidth, height: tableHeight } = tableSize;
 
     // Resize while keeping track of Dropdowns
-    const columnSelectRefs: React.RefObject<HTMLDivElement>[] = [
+    const columnSelectRefs: React.RefObject<HTMLDivElement | HTMLButtonElement>[] = [
       groupByColumnsRef,
       metricColumnsRef,
-      aggregateColumnsRef
+      aggregateColumnsRef,
     ];
 
     // Recalculate Dropdowns
@@ -733,18 +764,20 @@ export default function TableChart<D extends DataRecord = DataRecord>(
       return height + offsetHeight + marginTop + marginBottom;
     }, 0);
 
+    // TODO: Figure out how to cater for Explore Button
+    const paddingSize = 100;
     // Table is increasing its original size
-    if (width - tableWidth > scrollBarSize || height - tableHeight > scrollBarSize + dropDownHeight) {
+    if (width - tableWidth > scrollBarSize || height - tableHeight > scrollBarSize + dropDownHeight + paddingSize) {
       handleSizeChange({
         width: width - scrollBarSize,
-        height: height - scrollBarSize - dropDownHeight,
+        height: height - scrollBarSize - dropDownHeight - paddingSize,
       });
     } 
-    else if (tableWidth - width > scrollBarSize || tableHeight - height > scrollBarSize + dropDownHeight) {
+    else if (tableWidth - width > scrollBarSize || tableHeight - height > scrollBarSize - dropDownHeight - paddingSize) {
       // Table is decreasing its original size
       handleSizeChange({
         width,
-        height: height + dropDownHeight,
+        height: height - dropDownHeight - paddingSize,
       });
     }
   }, [width, height, handleSizeChange, tableSize]);
@@ -753,6 +786,9 @@ export default function TableChart<D extends DataRecord = DataRecord>(
   const [groupByColumns, setGroupByColumns] = useState<string[]>(defaultGroupbyColumns as string[] || []);
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>(defaultMetricsColumns as string[] || []);
   const [aggregateSelected, setAggregateSelected] = useState<string[]>(['Sum']);
+  const [newRowCount, setNewRowCount] = useState<number>(rowCount);
+  const [exploreCount, setExploreCount] = useState<number>(rowCount)
+
 
   const defaultAvailableAggregateColumns = ['Sum', 'Average', 'Count', 'Count Distinct', 'Min', 'Max'];
 
@@ -760,166 +796,155 @@ export default function TableChart<D extends DataRecord = DataRecord>(
   const [filteredData, setFilteredData] = useState<DataRecord[]>(props.data);
   const [filteredColumns, setFilteredColumns] = useState<ColumnWithLooseAccessor<D>[]>([]);
 
+
   // queryContext
   async function fetchData(queryContext: QueryContext) {
-    const loginURL = "http://localhost:9000/api/v1/security/login"  
-    // GET URL
-    const loginBody = await fetch(loginURL, {
-      method: "POST",
-      body: JSON.stringify({
-        "username": "admin",  
-        "provider": "db",
-        "refresh": "true",
-        "password": "admin"
-      }),
-      headers: {
-        "Content-Type": "application/json; charset=UTF-8",
-        "Accept": "application/json"
-      }
-    })
-      .then(
-        (response) => {
-          if (!response.ok){
-            throw new Error(`HTTP ERROR! Status: ${response.status}`);
-          }
-          return response.json();
-        }
-      )
-
-    const access_token = loginBody["access_token"];
-
-    console.log(access_token);
     // Fetch Data
+    const data_endpoint = `api/v1/chart/data`;
 
-    console.log("Query Context: " + JSON.stringify(queryContext, null, 2));
-
-    const data_endpoint = "http://localhost:9000/api/v1/chart/data";
-
-    const newDataRecords = await fetch(
-      data_endpoint,
+    const newDataRecords = await client.post(
       {
-        method: "POST",
-        body: JSON.stringify(queryContext),
+        endpoint: data_endpoint,
+        jsonPayload: queryContext,
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json",
-          "Authorization": 'Bearer ' + access_token
-        }
+        },
+        stringify: true,
       }
     )
     .then(
       (response) => {
-        if (!response.ok){
-          throw new Error(`HTTP ERROR! Status: ${response.status}`);
-        }
-        return response.json();
+        return response["json"]["result"]
       }
     )
-
-    console.log("raw Data:" + JSON.stringify(newDataRecords, null, 2));
-    
-    return newDataRecords["result"];
+    .catch(error => {
+      console.error('Error fetching data:', error);
+      // Handle the error
+    });    
+    return newDataRecords;
   }
-  
-  useMemo(async () => {
-    // const aggregates = calculateAggregates(props.data, groupByColumns, selectedMetrics);
-
-    // const newData: DataRecord[] = aggregates.map(row => row as DataRecord);
-    const queryContext = cachedBuildQuery()(props.formData, );
-    queryContext.queries[0].columns = groupByColumns;
-
-    const GetAggregateLabel = () => {
-      let label = "";
-      switch (aggregateSelected[0]){
-        case "Sum":
-          label = "SUM";
-          break;
-        case "Average":
-          label = "AVG";
-          break;
-        case "Count":
-          label = "COUNT";
-          break;
-        case "Count Distinct":
-          label = "COUNT_DISTINCT";
-          break;
-        case "Min":
-          label = "MIN";
-          break;
-        case "Max":
-          label = "MAX";
-          break;
-      }
-      return label;
-    }
-
-    queryContext.queries[0].metrics = selectedMetrics.map(
-      (metricColumn) : QueryFormMetric => {
-        return {
-          "expressionType": "SIMPLE",
-          "column": {
-            "advanced_data_type": null,
-            "certification_details": null,
-            "certified_by": null,
-            "column_name": metricColumn,
-            "description": null,
-            "expression": "",
-            "filterable": true,
-            "groupby": true,
-            "id": 363,
-            "is_certified": false,
-            "is_dttm": false,
-            "python_date_format": null,
-            "type": "BIGINT",
-            "type_generic": 0,
-            "verbose_name": null,
-            "warning_markdown": null
-          },
-          "aggregate": GetAggregateLabel(),
-          "sqlExpression": null,
-          "datasourceWarning": false,
-          "hasCustomLabel": false,
-          "label": `${GetAggregateLabel()}(${metricColumn})`,
-          "optionName": "metric_nzr0xyjj5kf_wtbrv6t9mu"
-        }
-      }
-    )
-
-    const fetchedDataRecords = await fetchData(queryContext);
-
-    const newDataRecords = Object.values(fetchedDataRecords[0]["data"]).map(row => row as DataRecord);
-
-    console.log("New Data Records: " + JSON.stringify(newDataRecords, null, 2));
-    // TODO: Change Column Metas
-    // TODO: Change Row COUNT
-    setFilteredData(newDataRecords);
-
-    let aggregatesMeta: DataColumnMeta[] = [];
-
-    fetchedDataRecords[0]["colnames"].forEach((column: string, index: number) => {
-      console.log(`Index: ${index}, Value: ${column}`);
-      const columnMeta: DataColumnMeta = {
-        key: column,
-        label: column,
-        dataType: fetchedDataRecords[0]["coltypes"][index],
-        isMetric: !groupByColumns.includes(column),
-        isPercentMetric: false,
-        isNumeric: true,
-        config: {
-          // Populate TableColumnConfig properties as needed
-        }
-      };
-
-      aggregatesMeta.push(columnMeta);
-    });
-
-    const aggregatedColumns = aggregatesMeta.map(getColumnConfigs);
-
-    // update new table columns
-    setFilteredColumns(aggregatedColumns);
-  }, [groupByColumns, selectedMetrics, aggregateSelected])
 
   const { width: widthFromState, height: heightFromState } = tableSize;
+
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+
+  const handleRefresh = () => {
+    try {
+      setIsRefreshing(true);
+
+      setExploreCount(exploreCount + 1);      
+
+      // Your existing data fetching logic here
+      
+    } catch (error) {
+      // Handle errors if needed
+      console.error('Error refreshing data:', error);
+    }
+  };
+
+
+  useEffect(() => {
+    const fetchDataProcess = async() => {
+      const queryContext = cachedBuildQuery()(props.formData, );
+      queryContext.queries[0].columns = groupByColumns;
+
+      const GetAggregateLabel = () => {
+        let label = "";
+        switch (aggregateSelected[0]){
+          case "Sum":
+            label = "SUM";
+            break;
+          case "Average":
+            label = "AVG";
+            break;
+          case "Count":
+            label = "COUNT";
+            break;
+          case "Count Distinct":
+            label = "COUNT_DISTINCT";
+            break;
+          case "Min":
+            label = "MIN";
+            break;
+          case "Max":
+            label = "MAX";
+            break;
+        }
+        return label;
+      }
+      queryContext.queries[0].metrics = selectedMetrics.map(
+        (metricColumn) : QueryFormMetric => {
+          return {
+            "expressionType": "SIMPLE",
+            "column": {
+              "advanced_data_type": null,
+              "certification_details": null,
+              "certified_by": null,
+              "column_name": metricColumn,
+              "description": null,
+              "expression": "",
+              "filterable": true,
+              "groupby": true,
+              "id": 363,
+              "is_certified": false,
+              "is_dttm": false,
+              "python_date_format": null,
+              "type": "BIGINT",
+              "type_generic": 0,
+              "verbose_name": null,
+              "warning_markdown": null
+            },
+            "aggregate": GetAggregateLabel(),
+            "sqlExpression": null,
+            "datasourceWarning": false,
+            "hasCustomLabel": false,
+            "label": `${GetAggregateLabel()}(${metricColumn})`,
+            "optionName": "metric_nzr0xyjj5kf_wtbrv6t9mu"
+          }
+        }
+      )
+
+      const fetchedDataRecords = await fetchData(queryContext);
+
+      const newDataRecords = Object.values(fetchedDataRecords[0]["data"]).map(row => row as DataRecord);
+
+      // TODO: Change Column Metas
+      // TODO: Change Row COUNT
+      setFilteredData(newDataRecords);
+
+      setNewRowCount(newDataRecords.length);
+
+      let aggregatesMeta: DataColumnMeta[] = [];
+
+      fetchedDataRecords[0]["colnames"].forEach((column: string, index: number) => {
+        const columnMeta: DataColumnMeta = {
+          key: column,
+          label: column,
+          dataType: fetchedDataRecords[0]["coltypes"][index],
+          isMetric: !groupByColumns.includes(column),
+          isPercentMetric: false,
+          isNumeric: true,
+          config: {
+            // Populate TableColumnConfig properties as needed
+          }
+        };
+
+        aggregatesMeta.push(columnMeta);
+      });
+
+      const aggregatedColumns = aggregatesMeta.map(getColumnConfigs);
+
+      // update new table columns
+      setFilteredColumns(aggregatedColumns);
+
+      handleSizeChange({width, height});
+      setIsRefreshing(false);
+    }
+
+    fetchDataProcess();
+  }, 
+  [exploreCount]);
 
   return (
     <Styles>
@@ -946,11 +971,16 @@ export default function TableChart<D extends DataRecord = DataRecord>(
         allowMultiple={false}
         ref={aggregateColumnsRef}
       />
+      <RefreshButton
+        label="Explore"
+        onClick={handleRefresh}
+        disabled={isRefreshing}
+      />
       {/* DataTable component */}
       <DataTable<D>
         columns={filteredColumns}
         data={filteredData}
-        rowCount={rowCount}
+        rowCount={newRowCount}
         tableClassName="table table-striped table-condensed"
         pageSize={pageSize}
         serverPaginationData={serverPaginationData}

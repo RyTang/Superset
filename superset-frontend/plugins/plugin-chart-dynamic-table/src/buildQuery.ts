@@ -52,7 +52,6 @@ export const buildQuery: BuildQuery<TableChartFormData> = (
   if (queryMode === QueryMode.raw) {
     formDataCopy = {
       ...formData,
-      row_limit: Infinity,
       include_time: false,
     };
   }

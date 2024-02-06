@@ -78,7 +78,7 @@ const isRawMode = isQueryMode(QueryMode.raw);
 // TODO: Need to deattach all_columns from Control Panel and attach to Visible Group By Columns
 const allColumnsControl: typeof sharedControls.groupby = {
   ...sharedControls.groupby,
-  label: t('Visible Group by Columns'),
+  label: t('Visible Group by'),
   description: t('Columns to Group By,\nNOTE: All Metric Columnsneeds to be present here'),
   multi: true,
   freeForm: true,
@@ -114,21 +114,21 @@ const config: ControlPanelConfig = {
         ],
         [
           {
-            name: 'visible_metrics_columns',
+            name: 'default_groupby_columns',
             config: {
-              ...sharedControls.columns,
-              label: t('Visible Metrics Columns'),
-              description: t('Visible Columns on the Metrics DropDown'),
+              ...sharedControls.groupby,
+              label: t('Default Group'),
+              description: t('Default Columns on the Groupby DropDown'),
             },
           },
         ],
         [
           {
-            name: 'default_groupby_columns',
+            name: 'visible_metrics_columns',
             config: {
-              ...sharedControls.groupby,
-              label: t('Default Group By Columns'),
-              description: t('Default Columns on the Groupby DropDown'),
+              ...sharedControls.columns,
+              label: t('Visible Metrics'),
+              description: t('Visible Columns on the Metrics DropDown'),
             },
           },
         ],
@@ -137,10 +137,10 @@ const config: ControlPanelConfig = {
             name: 'default_metrics_columns',
             config: {
               ...sharedControls.columns,
-              label: t('Default Metrics Columns'),
+              label: t('Default Metrics'),
               description: t('Default Columns on the Metrics DropDown'),
             },
-          },
+          }
         ],
         ['adhoc_filters'],
         [
@@ -179,6 +179,14 @@ const config: ControlPanelConfig = {
             ]
           : [],
         [
+          {
+            name: 'row_limit',
+            override: {
+              default: 1000,
+              visibility: ({ controls }: ControlPanelsContainerProps) =>
+                !controls?.server_pagination?.value,
+            },
+          },
           {
             name: 'server_page_length',
             config: {
