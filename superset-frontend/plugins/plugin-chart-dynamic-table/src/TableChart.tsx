@@ -26,7 +26,8 @@ import React, {
   ChangeEvent,
   useRef,
   forwardRef,
-  useEffect
+  useEffect,
+  HTMLProps
 } from 'react';
 import {
   ColumnInstance,
@@ -54,7 +55,8 @@ import {
   tn,
   QueryContext,
   QueryFormMetric,
-  SupersetClient
+  SupersetClient,
+  Aggregate
 } from '@superset-ui/core';
 
 import { DataColumnMeta, TableChartTransformedProps } from './types';
@@ -72,42 +74,33 @@ import { updateExternalFormData } from './DataTable/utils/externalAPIs';
 import getScrollBarSize from './DataTable/utils/getScrollBarSize';
 
 // Additional Code
-import Select from 'react-select';
+// import Select from 'react-select';
 import makeAnimated from 'react-select/animated';
 import { cachedBuildQuery } from './buildQuery';
+
+// UI Components
 import Button from '../../../src/components/Button/index';
+import Select from '../../../src/components/Select/Select';
+import { SelectOptionsType } from 'src/components/Select/types';
+import { wrap } from 'lodash';
 
 // ADDITIONAL CODE
-// Dropdown code
-interface ColumnSelectProps {
-  label: string;
-  options: string[];
-  selected: string[];
-  onChange: (selected: string[]) => void;
-  allowMultiple?: boolean;
-}
+// Dropdwon Wrapper
 
-const ColumnSelect = forwardRef<HTMLDivElement, ColumnSelectProps>(
-  ({ label, options, selected, onChange, allowMultiple = true}, ref) => {
-    const animatedComponents = makeAnimated();
-    return (
-      <div ref={ref} style={{ marginBottom: '10px' }}>
-        <label style={{ display: 'block', marginBottom: '5px' }}>{label}</label>
-        <Select
-          isMulti={allowMultiple}
-          options={options.map(option => ({ value: option, label: option }))}
-          value={allowMultiple ? selected.map((value) => ({ value, label: value })) : { value: selected[0], label: selected[0] }}
-          onChange={(selectedOptions) => {
-            const selectedValues = selectedOptions ? (allowMultiple ? selectedOptions.map((option) => option.value) : [selectedOptions.value]) : []
-            onChange(selectedValues);
-          }}
-          components={animatedComponents}
-        />
-      </div>
-    );
-  }
-);
+const ControlSection = forwardRef<HTMLDivElement, HTMLProps<HTMLDivElement>>(
+  (props, ref) => 
+    (<div ref={ref} style={{display: 'flex', flexWrap: 'wrap', marginBottom: '10px', gap: '10px'}}>
+      {props.children}
+    </div>)
+)
 
+const DropDownWrapper = styled.div`
+  display: block;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+`;
+
+// Explore button
 interface RefreshButtonProps {
   onClick: () => void;
   disabled: boolean;
@@ -739,9 +732,7 @@ export default function TableChart<D extends DataRecord = DataRecord>(
   // TESTING SECTION
   //
   //
-  const groupByColumnsRef = useRef<HTMLDivElement>(null);
-  const metricColumnsRef = useRef<HTMLDivElement>(null);
-  const aggregateColumnsRef = useRef<HTMLDivElement>(null);
+  const controlSectionRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
     // After initial load the table should resize only when the new sizes
@@ -751,9 +742,7 @@ export default function TableChart<D extends DataRecord = DataRecord>(
 
     // Resize while keeping track of Dropdowns
     const columnSelectRefs: React.RefObject<HTMLDivElement | HTMLButtonElement>[] = [
-      groupByColumnsRef,
-      metricColumnsRef,
-      aggregateColumnsRef,
+      controlSectionRef
     ];
 
     // Recalculate Dropdowns
@@ -878,26 +867,20 @@ export default function TableChart<D extends DataRecord = DataRecord>(
           return {
             "expressionType": "SIMPLE",
             "column": {
-              "advanced_data_type": null,
-              "certification_details": null,
-              "certified_by": null,
+              "advanced_data_type": undefined,
               "column_name": metricColumn,
-              "description": null,
+              "description": undefined,
               "expression": "",
               "filterable": true,
               "groupby": true,
               "id": 363,
-              "is_certified": false,
               "is_dttm": false,
-              "python_date_format": null,
+              "python_date_format": undefined,
               "type": "BIGINT",
               "type_generic": 0,
-              "verbose_name": null,
-              "warning_markdown": null
+              "verbose_name": undefined,
             },
-            "aggregate": GetAggregateLabel(),
-            "sqlExpression": null,
-            "datasourceWarning": false,
+            "aggregate": GetAggregateLabel() as Aggregate,
             "hasCustomLabel": false,
             "label": `${GetAggregateLabel()}(${metricColumn})`,
             "optionName": "metric_nzr0xyjj5kf_wtbrv6t9mu"
@@ -949,33 +932,46 @@ export default function TableChart<D extends DataRecord = DataRecord>(
   return (
     <Styles>
       {/* Control UI components */}
-      <ColumnSelect
-        label="Groupby Columns"
-        options={all_columns as string[]}
-        selected={groupByColumns}
-        onChange={(selected) => setGroupByColumns(selected)}
-        ref={groupByColumnsRef}
-      />
-      <ColumnSelect
-        label="Metric Columns"
-        options={visibleMetricsColumns as string[]}
-        selected={selectedMetrics}
-        onChange={(selected) => setSelectedMetrics(selected)}
-        ref={metricColumnsRef}
-      />
-      <ColumnSelect
-        label="Aggregate Function"
-        options={defaultAvailableAggregateColumns}
-        selected={aggregateSelected}
-        onChange={setAggregateSelected}
-        allowMultiple={false}
-        ref={aggregateColumnsRef}
-      />
-      <RefreshButton
-        label="Explore"
-        onClick={handleRefresh}
-        disabled={isRefreshing}
-      />
+      <ControlSection ref={controlSectionRef}>
+        <Select
+          mode='multiple'
+          ariaLabel={t('Select Columns to Group By')}
+          options={(all_columns as string[]).map(option => ({ value: option, label: option }))}
+          value={groupByColumns}
+          allowClear={true}
+          allowSelectAll={true}
+          header='Group By'
+          onChange={(value, option) => setGroupByColumns(value as string[])}
+          helperText={t('Select Columns to Group By')}
+        />
+        <Select
+          mode='multiple'
+          ariaLabel={t('Select Metrics')}
+          options={(visibleMetricsColumns as string[]).map(option => ({ value: option, label: option }))}
+          value={selectedMetrics}
+          allowClear={true}
+          allowSelectAll={true}
+          header='Metrics'
+          onChange={(value, option) => setSelectedMetrics(value as string[])}
+          helperText={t('Select Metrics')}
+        />
+        <Select
+          mode='single'
+          ariaLabel={t('Aggregate Function')}
+          options={defaultAvailableAggregateColumns.map(option => ({ value: option, label: option }))}
+          value={aggregateSelected}
+          onChange={(value, option) => setAggregateSelected([value as string])}
+          allowClear={true}
+          allowSelectAll={true}
+          header='Aggregate Function'
+          helperText={t('Aggregate Function')}
+        />
+        <RefreshButton
+          label="Explore"
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+        />
+      </ControlSection>      
       {/* DataTable component */}
       <DataTable<D>
         columns={filteredColumns}
