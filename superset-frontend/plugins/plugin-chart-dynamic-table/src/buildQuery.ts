@@ -17,21 +17,14 @@
  * under the License.
  */
 import {
-  AdhocColumn,
   buildQueryContext,
-  ensureIsArray,
-  getMetricLabel,
-  hasGenericChartAxes,
-  isPhysicalColumn,
   QueryMode,
   QueryObject,
-  removeDuplicates,
 } from '@superset-ui/core';
 import { PostProcessingRule } from '@superset-ui/core/src/query/types/PostProcessing';
 import { BuildQuery } from '@superset-ui/core/src/chart/registries/ChartBuildQueryRegistrySingleton';
 import { TableChartFormData } from './types';
 import { updateExternalFormData } from './DataTable/utils/externalAPIs';
-import Query from 'packages/superset-ui-core/src/query/types/Query';
 
 
 export const buildQuery: BuildQuery<TableChartFormData> = (
@@ -39,13 +32,9 @@ export const buildQuery: BuildQuery<TableChartFormData> = (
   options,
 ) => {
   const {
-    percent_metrics: percentMetrics,
-    order_desc: orderDesc = false,
     extra_form_data,
   } = formData;
   const queryMode = QueryMode.raw;
-  const sortByMetric = ensureIsArray(formData.timeseries_limit_metric)[0];
-  const time_grain_sqla =
     extra_form_data?.time_grain_sqla || formData.time_grain_sqla;
   let formDataCopy = formData;
   // never include time in raw records mode

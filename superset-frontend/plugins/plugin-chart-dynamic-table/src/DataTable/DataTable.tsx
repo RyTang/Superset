@@ -257,9 +257,18 @@ export default typedMemo(function DataTable<D extends object>({
           return (
             <tr key={headerGroupKey || headerGroup.id} {...headerGroupProps}>
               {headerGroup.headers.map(column =>
+
                 column.render('Header', {
                   key: column.id,
                   ...column.getSortByToggleProps(),
+                  onClick: (event: React.MouseEvent) => {
+                    column.getSortByToggleProps()?.onClick?.(event);
+                    setTimeout(() => {
+                      console.log("Column being Clicked: " + JSON.stringify(column, null, 2));
+                    }, 100);
+                    // TODO: Need to know how to deal with shift + click and normal click
+                    // TODO: Need to pass in data to Create New Query
+                  },
                   onDragStart,
                   onDrop,
                 }),

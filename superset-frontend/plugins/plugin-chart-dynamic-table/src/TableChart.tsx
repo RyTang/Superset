@@ -23,12 +23,8 @@ import React, {
   useMemo,
   useState,
   MouseEvent,
-  ChangeEvent,
   useRef,
-  forwardRef,
-  useEffect,
-  HTMLProps
-} from 'react';
+  useEffect} from 'react';
 import {
   ColumnInstance,
   ColumnWithLooseAccessor,
@@ -54,10 +50,7 @@ import {
   t,
   tn,
   QueryContext,
-  QueryFormMetric,
-  SupersetClient,
-  Aggregate
-} from '@superset-ui/core';
+  SupersetClient} from '@superset-ui/core';
 
 import { DataColumnMeta, TableChartTransformedProps } from './types';
 import DataTable, {
@@ -75,52 +68,11 @@ import getScrollBarSize from './DataTable/utils/getScrollBarSize';
 
 // Additional Code
 // import Select from 'react-select';
-import makeAnimated from 'react-select/animated';
-import { cachedBuildQuery } from './buildQuery';
 
 // UI Components
-import Button from '../../../src/components/Button/index';
 import Select from '../../../src/components/Select/Select';
-import { SelectOptionsType } from 'src/components/Select/types';
-import { wrap } from 'lodash';
-
-// ADDITIONAL CODE
-// Dropdwon Wrapper
-
-const ControlSection = forwardRef<HTMLDivElement, HTMLProps<HTMLDivElement>>(
-  (props, ref) => 
-    (<div ref={ref} style={{display: 'flex', flexWrap: 'wrap', marginBottom: '10px', gap: '10px'}}>
-      {props.children}
-    </div>)
-)
-
-const DropDownWrapper = styled.div`
-  display: block;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
-`;
-
-// Explore button
-interface RefreshButtonProps {
-  onClick: () => void;
-  disabled: boolean;
-  label: string;
-}
-
-const RefreshButton: React.FC<RefreshButtonProps> = ({onClick, disabled, label}) => {
-  const button = Button({
-    tooltip:"Load Dataset",
-    disabled:disabled,
-    buttonSize:'default',
-    onClick:onClick,
-    buttonStyle:"primary",
-    children:label,
-    style: {marginBottom: '10px'}
-  })
-  
-  return button;
-};
-
+import { createNewQuery } from './utils/CreateNewQuery';
+import { ControlSection, DropDownWrapper, RefreshButton} from './ControlSection';
 
 // Create Superset Cient for api calls
 const host = window.location.host;
@@ -722,6 +674,7 @@ export default function TableChart<D extends DataRecord = DataRecord>(
     [setDataMask],
   );
 
+  // TODO: Ensure that pagination is changed appropriately
   const handleSizeChange = useCallback(
     ({ width, height }: { width: number; height: number }) => {
       setTableSize({ width, height });
@@ -740,7 +693,7 @@ export default function TableChart<D extends DataRecord = DataRecord>(
     const scrollBarSize = getScrollBarSize();
     const { width: tableWidth, height: tableHeight } = tableSize;
 
-    // Resize while keeping track of Dropdowns
+    // Resize while keeping track of Control Section
     const columnSelectRefs: React.RefObject<HTMLDivElement | HTMLButtonElement>[] = [
       controlSectionRef
     ];
@@ -753,7 +706,6 @@ export default function TableChart<D extends DataRecord = DataRecord>(
       return height + offsetHeight + marginTop + marginBottom;
     }, 0);
 
-    // TODO: Figure out how to cater for Explore Button
     const paddingSize = 100;
     // Table is increasing its original size
     if (width - tableWidth > scrollBarSize || height - tableHeight > scrollBarSize + dropDownHeight + paddingSize) {
@@ -777,8 +729,6 @@ export default function TableChart<D extends DataRecord = DataRecord>(
   const [aggregateSelected, setAggregateSelected] = useState<string[]>(['Sum']);
   const [newRowCount, setNewRowCount] = useState<number>(rowCount);
   const [exploreCount, setExploreCount] = useState<number>(rowCount)
-
-
   const defaultAvailableAggregateColumns = ['Sum', 'Average', 'Count', 'Count Distinct', 'Min', 'Max'];
 
   // TESTING DYNAMIC
@@ -835,70 +785,17 @@ export default function TableChart<D extends DataRecord = DataRecord>(
 
   useEffect(() => {
     const fetchDataProcess = async() => {
-      const queryContext = cachedBuildQuery()(props.formData, );
-      queryContext.queries[0].columns = groupByColumns;
-
-      const GetAggregateLabel = () => {
-        let label = "";
-        switch (aggregateSelected[0]){
-          case "Sum":
-            label = "SUM";
-            break;
-          case "Average":
-            label = "AVG";
-            break;
-          case "Count":
-            label = "COUNT";
-            break;
-          case "Count Distinct":
-            label = "COUNT_DISTINCT";
-            break;
-          case "Min":
-            label = "MIN";
-            break;
-          case "Max":
-            label = "MAX";
-            break;
-        }
-        return label;
-      }
-      queryContext.queries[0].metrics = selectedMetrics.map(
-        (metricColumn) : QueryFormMetric => {
-          return {
-            "expressionType": "SIMPLE",
-            "column": {
-              "advanced_data_type": undefined,
-              "column_name": metricColumn,
-              "description": undefined,
-              "expression": "",
-              "filterable": true,
-              "groupby": true,
-              "id": 363,
-              "is_dttm": false,
-              "python_date_format": undefined,
-              "type": "BIGINT",
-              "type_generic": 0,
-              "verbose_name": undefined,
-            },
-            "aggregate": GetAggregateLabel() as Aggregate,
-            "hasCustomLabel": false,
-            "label": `${GetAggregateLabel()}(${metricColumn})`,
-            "optionName": "metric_nzr0xyjj5kf_wtbrv6t9mu"
-          }
-        }
-      )
+      const queryContext = createNewQuery<D>(props, groupByColumns, aggregateSelected, selectedMetrics);
 
       const fetchedDataRecords = await fetchData(queryContext);
 
       const newDataRecords = Object.values(fetchedDataRecords[0]["data"]).map(row => row as DataRecord);
 
-      // TODO: Change Column Metas
-      // TODO: Change Row COUNT
       setFilteredData(newDataRecords);
 
       setNewRowCount(newDataRecords.length);
 
-      let aggregatesMeta: DataColumnMeta[] = [];
+      let newColumns: DataColumnMeta[] = [];
 
       fetchedDataRecords[0]["colnames"].forEach((column: string, index: number) => {
         const columnMeta: DataColumnMeta = {
@@ -913,13 +810,13 @@ export default function TableChart<D extends DataRecord = DataRecord>(
           }
         };
 
-        aggregatesMeta.push(columnMeta);
+        newColumns.push(columnMeta);
       });
 
-      const aggregatedColumns = aggregatesMeta.map(getColumnConfigs);
+      const newColumnsMeta = newColumns.map(getColumnConfigs);
 
       // update new table columns
-      setFilteredColumns(aggregatedColumns);
+      setFilteredColumns(newColumnsMeta);
 
       handleSizeChange({width, height});
       setIsRefreshing(false);
@@ -955,27 +852,29 @@ export default function TableChart<D extends DataRecord = DataRecord>(
           onChange={(value, option) => setSelectedMetrics(value as string[])}
           helperText={t('Select Metrics')}
         />
-        <Select
-          mode='single'
-          ariaLabel={t('Aggregate Function')}
-          options={defaultAvailableAggregateColumns.map(option => ({ value: option, label: option }))}
-          value={aggregateSelected}
-          onChange={(value, option) => setAggregateSelected([value as string])}
-          allowClear={true}
-          allowSelectAll={true}
-          header='Aggregate Function'
-          helperText={t('Aggregate Function')}
-        />
-        <RefreshButton
-          label="Explore"
-          onClick={handleRefresh}
-          disabled={isRefreshing}
-        />
-      </ControlSection>      
+        <DropDownWrapper>
+          <Select
+            mode='single'
+            ariaLabel={t('Aggregate Function')}
+            options={defaultAvailableAggregateColumns.map(option => ({ value: option, label: option }))}
+            value={aggregateSelected}
+            onChange={(value, option) => setAggregateSelected([value as string])}
+            allowClear={true}
+            allowSelectAll={true}
+            header='Aggregate Function'
+            helperText={t('Aggregate Function')}
+          />
+          <RefreshButton
+            label="Explore"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+          />
+        </DropDownWrapper>        
+      </ControlSection>
       {/* DataTable component */}
       <DataTable<D>
         columns={filteredColumns}
-        data={filteredData}
+        data={filteredData as D[]}
         rowCount={newRowCount}
         tableClassName="table table-striped table-condensed"
         pageSize={pageSize}
@@ -997,3 +896,6 @@ export default function TableChart<D extends DataRecord = DataRecord>(
     </Styles>
   );
 }
+
+
+
